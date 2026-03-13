@@ -1,6 +1,6 @@
 ## Laptop Price Predictor
 
-Predict the **estimated market price of a laptop** based on its hardware specifications using a **Lasso Regression** model wrapped in an interactive **Streamlit** web app.
+Predict the **estimated market price of a laptop** based on its hardware specifications using a **polynomial-features + linear regression** model wrapped in an interactive **Streamlit** web app.
 
 The model is trained on a structured laptop dataset and exposes key configuration knobs such as RAM, CPU, storage, display quality (PPI), and more. The app returns an estimated price and a simple price range, along with a feature-importance view.
 
@@ -9,17 +9,18 @@ The model is trained on a structured laptop dataset and exposes key configuratio
 ### Features
 
 - **Interactive UI** built with `streamlit`
-- **Lasso Regression** model with cross‑validated hyperparameter search
-- **Feature importance** plot for the top predictors
+- **Polynomial regression** (linear regression on polynomial feature expansions)
+- Uses **log-transformed prices** to stabilize variance (`log(Price (Euro))`)
 - Handles **categorical features** via one‑hot encoding (company, type, CPU, GPU, OS)
-- Simple **price range** estimate around the central prediction
+- Scales numeric features and expands them with **polynomial interaction terms**
+- Simple **price range** estimate around the central prediction in the app
 
 ---
 
 ### Project Structure
 
 - `app.py` – Streamlit app for interactive price prediction and model explanation  
-- `train_model.py` – Script to train and tune the Lasso Regression model and save the pipeline  
+- `train_model.py` – Script to train and select the best polynomial regression model and save the pipeline  
 - `requirements.txt` – Python dependencies  
 - `data/laptop_data.csv` – Input dataset used for training (not committed in some setups; see below)  
 - `pipeline.pkl` – Trained `scikit-learn` pipeline (saved model used by the app)
@@ -73,9 +74,17 @@ If you are using the original raw laptop dataset, make sure to preprocess it int
 The model is trained using `train_model.py`, which:
 
 - Loads `data/laptop_data.csv`
-- Splits features `X` and target `y = "Price (Euro)"`  
-- Builds a `Pipeline(StandardScaler() -> Lasso)`  
-- Performs `RandomizedSearchCV` over the `lasso__alpha` hyperparameter using 5‑fold cross‑validation and R² scoring  
+- Splits features `X` (all columns except `Price (Euro)`) and target `y = log("Price (Euro)")`
+- Defines **categorical features**: `Company`, `TypeName`, `GPU_Company`, `CPU`, `OS`
+- Treats all remaining non-target, non-ID columns as **numeric features**
+- For each polynomial degree in `[2, 3, 4, 5]`:
+  - Builds a `ColumnTransformer` that:
+    - Applies `StandardScaler` + `PolynomialFeatures` (interaction-only) to numeric features
+    - Applies `OneHotEncoder(handle_unknown="ignore")` to categorical features
+  - Wraps this in a `Pipeline(preprocessing -> LinearRegression)`
+  - Evaluates R² using 5‑fold cross‑validation
+- Selects the degree with the **best mean CV R²**
+- Fits the final pipeline on the full dataset
 - Saves the best pipeline to `pipeline.pkl`
 
 To (re)train the model:
@@ -117,13 +126,16 @@ In the UI you can:
 
 ### Model Details
 
-- **Algorithm**: Lasso Regression (`sklearn.linear_model.Lasso`)  
-- **Preprocessing**: `StandardScaler` on numeric features  
-- **Hyperparameter search**: `RandomizedSearchCV` over `lasso__alpha` with a `loguniform(1e-5, 1e1)` prior  
-- **Cross‑validation**: 5‑fold (`KFold`, shuffled, `random_state=42`)  
+- **Algorithm**: Linear Regression (`sklearn.linear_model.LinearRegression`) on polynomially expanded numeric features  
+- **Preprocessing**:
+  - `StandardScaler` on numeric features
+  - `PolynomialFeatures` (interaction-only, degrees 2–5, degree chosen by CV)
+  - `OneHotEncoder(handle_unknown="ignore")` for categorical features  
+- **Target**: Natural log of price, `log(Price (Euro))`, to reduce skew and stabilize variance  
+- **Model selection**: Grid over polynomial degrees `[2, 3, 4, 5]` with 5‑fold cross‑validation  
 - **Metric**: R² (coefficient of determination)  
 
-The Streamlit sidebar also shows the cross‑validated R² achieved by the tuned model.
+The Streamlit sidebar can be updated to show the cross‑validated R² achieved by the selected model, based on the output printed by `train_model.py`.
 
 ---
 

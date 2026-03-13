@@ -32,7 +32,7 @@ st.title("💻 Laptop Price Prediction App")
 st.markdown("""
 Predict the **estimated market price of a laptop** based on hardware specifications.
 
-This application uses a **Fine-Tuned Lasso Regression Model** trained on laptop hardware datasets.
+This application uses a **polynomial-features + linear regression model** trained on laptop hardware datasets.
 """)
 
 # -------------------------------------------------
@@ -42,8 +42,8 @@ This application uses a **Fine-Tuned Lasso Regression Model** trained on laptop 
 st.sidebar.title("📊 Model Information")
 
 st.sidebar.markdown("""
-**Model:** Lasso Regression  
-**Cross Validation R²:** 0.865  
+**Model:** Polynomial Regression (Linear Regression on Polynomial Features)  
+**Cross Validation R²:** See training logs from `train_model.py`  
 
 Important predictors discovered during training:
 
@@ -67,20 +67,20 @@ with col1:
     company = st.selectbox(
         "Company",
         [
-        "Apple","Asus","Chuwi","Dell","Fujitsu","Google","HP","Huawei",
-        "LG","Lenovo","MSI","Mediacom","Microsoft","Razer","Samsung",
-        "Toshiba","Vero","Xiaomi"
+        "Apple","Asus","Acer","Chuwi","Dell","Fujitsu","Google","HP",
+        "Huawei","LG","Lenovo","MSI","Mediacom","Microsoft","Razer",
+        "Samsung","Toshiba","Vero","Xiaomi"
         ]
     )
 
     typename = st.selectbox(
         "Laptop Type",
-        ["Notebook","Gaming","Ultrabook","Workstation","Netbook"]
+        ["Notebook","Gaming","Ultrabook","2 in 1 Convertible","Netbook","Workstation"]
     )
 
     os = st.selectbox(
         "Operating System",
-        ["Windows","Other"]
+        ["Windows","Mac","Other"]
     )
 
     weight = st.slider(
@@ -112,9 +112,9 @@ with col2:
         ]
     )
 
-    gpu = st.selectbox(
+    gpu_company = st.selectbox(
         "GPU Brand",
-        ["Intel","Nvidia"]
+        ["Intel","Nvidia","AMD"]
     )
 
 # -------------------------------------------------
@@ -147,6 +147,16 @@ with st.expander("Advanced Display & Storage Settings"):
             0, 2000, 0
         )
 
+        cpu_tier = st.slider(
+            "CPU Tier (1 = entry, 4 = high-end)",
+            1, 4, 3
+        )
+
+        gpu_tier = st.slider(
+            "GPU Tier (1 = entry, 3 = high-end)",
+            1, 3, 2
+        )
+
 # -------------------------------------------------
 # CREATE INPUT DATAFRAME
 # -------------------------------------------------
@@ -156,42 +166,39 @@ input_data = pd.DataFrame(
     columns=feature_names
 )
 
-# Numerical features
-input_data["CPU_Frequency (GHz)"] = cpu_freq
-input_data["RAM (GB)"] = ram
-input_data["Weight (kg)"] = weight
-input_data["Touchscreen"] = touchscreen
-input_data["Ips"] = ips
-input_data["ppi"] = ppi
-input_data["SSD"] = ssd
-input_data["HDD"] = hdd
+# Set numeric features
+if "CPU_Frequency (GHz)" in input_data.columns:
+    input_data["CPU_Frequency (GHz)"] = cpu_freq
+if "RAM (GB)" in input_data.columns:
+    input_data["RAM (GB)"] = ram
+if "Weight (kg)" in input_data.columns:
+    input_data["Weight (kg)"] = weight
+if "Touchscreen" in input_data.columns:
+    input_data["Touchscreen"] = touchscreen
+if "Ips" in input_data.columns:
+    input_data["Ips"] = ips
+if "ppi" in input_data.columns:
+    input_data["ppi"] = ppi
+if "SSD" in input_data.columns:
+    input_data["SSD"] = ssd
+if "HDD" in input_data.columns:
+    input_data["HDD"] = hdd
+if "CPU_Tier" in input_data.columns:
+    input_data["CPU_Tier"] = cpu_tier
+if "GPU_Tier" in input_data.columns:
+    input_data["GPU_Tier"] = gpu_tier
 
-# -------------------------------------------------
-# ONE HOT FEATURES
-# -------------------------------------------------
-
-company_col = f"Company_{company}"
-if company_col in input_data.columns:
-    input_data[company_col] = 1
-
-type_col = f"TypeName_{typename}"
-if type_col in input_data.columns:
-    input_data[type_col] = 1
-
-cpu_col = f"CPU_{cpu}"
-if cpu_col in input_data.columns:
-    input_data[cpu_col] = 1
-
-gpu_col = f"GPU_Company_{gpu}"
-if gpu_col in input_data.columns:
-    input_data[gpu_col] = 1
-
-input_data["CPU_Company_Intel"] = 1
-
-if os == "Windows":
-    input_data["OS_Windows"] = 1
-else:
-    input_data["OS_Other"] = 1
+# Set categorical/string features
+if "Company" in input_data.columns:
+    input_data["Company"] = company
+if "TypeName" in input_data.columns:
+    input_data["TypeName"] = typename
+if "GPU_Company" in input_data.columns:
+    input_data["GPU_Company"] = gpu_company
+if "CPU" in input_data.columns:
+    input_data["CPU"] = cpu
+if "OS" in input_data.columns:
+    input_data["OS"] = os
 
 # -------------------------------------------------
 # CONFIG SUMMARY
@@ -205,11 +212,13 @@ summary = {
     "RAM": f"{ram} GB",
     "CPU": cpu,
     "CPU Frequency": f"{cpu_freq} GHz",
-    "GPU": gpu,
+    "GPU Brand": gpu_company,
     "SSD": f"{ssd} GB",
     "HDD": f"{hdd} GB",
     "PPI": ppi,
-    "Weight": f"{weight} kg"
+    "Weight": f"{weight} kg",
+    "CPU Tier": cpu_tier,
+    "GPU Tier": gpu_tier,
 }
 
 st.table(pd.DataFrame(summary.items(), columns=["Feature", "Value"]))
@@ -294,22 +303,17 @@ with st.expander("How the Model Works"):
     st.markdown("""
 ### Machine Learning Model
 
-This application uses **Lasso Regression**, a regularized linear model.
+This application uses a **polynomial regression model**, implemented as linear regression on polynomially
+expanded numeric features together with one-hot encoded categorical features.
 
-Lasso adds a penalty to reduce unnecessary coefficients, which helps:
+Numeric features (such as CPU frequency, RAM, storage sizes, and display PPI) are:
 
-• prevent overfitting  
-• select important features  
-• improve generalization  
+• scaled using `StandardScaler`  
+• expanded using `PolynomialFeatures` with interaction terms  
 
-### Key Features Affecting Price
+Categorical features (such as company, laptop type, GPU brand, CPU family, and OS) are encoded via
+`OneHotEncoder(handle_unknown="ignore")`.
 
-Based on training results:
-
-1. RAM capacity  
-2. SSD storage size  
-3. Display quality (PPI)  
-4. CPU frequency  
-
-Higher values for these features generally increase laptop price.
+The model is trained on the **log of the price** to stabilize variance, and predictions are exponentiated
+in this app to return prices in Euro.
 """)
