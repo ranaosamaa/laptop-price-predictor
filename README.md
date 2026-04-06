@@ -2,7 +2,7 @@
 
 Live app link: https://ml-laptop.streamlit.app/
 
-Predict the **estimated market price of a laptop** based on its hardware specifications using a **Lasso Regression** model wrapped in an interactive **Streamlit** web app.
+Predict the **estimated market price of a laptop** based on its hardware specifications using a **Polynomial Regression** model wrapped in an interactive **Streamlit** web app.
 
 The model is trained on a structured laptop dataset and exposes key configuration knobs such as RAM, CPU, storage, display quality (PPI), and more. The app returns an estimated price and a simple price range, along with a feature-importance view.
 
